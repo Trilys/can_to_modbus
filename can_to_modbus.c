@@ -74,7 +74,7 @@ static void * t_CAN_RC (void * p_data)
 	unsigned char i;
 	s_info_CAN *actual_info = p_data;
 	
-	int soc, outModbus;
+	int soc, outModbus, relay;
 	float current_max, vmax;
 	
 	modbus_t *mb;
@@ -108,8 +108,10 @@ static void * t_CAN_RC (void * p_data)
 			//int modbus_write_register(modbus_t *ctx, int addr, int value);
 			if ((actual_info->canIdReceived[0] & 0x7fFFffFF) == 0x10f8159e) {	//SOC
 				soc = actual_info->data[2]*10;
+				relay = (actual_info->data[7] == 0x1F); // high power relay closed if 8th byte is 0x1F
 				#ifdef DEBUG
 					printf("\nDBG : SOC received : %02hx=%d",actual_info->data[2],soc);
+					printf("\nDBG : relay received : %02hx",actual_info->data[7]);
 				#endif
 				outModbus=modbus_write_register(mb, ADD_VEBUS_STATECHARGE, soc);
 				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
@@ -121,6 +123,32 @@ static void * t_CAN_RC (void * p_data)
 					modbus_close(mb);
 					modbus_connect(mb);
 					outModbus=modbus_write_register(mb, ADD_VEBUS_STATECHARGE, soc);
+				}
+				#ifdef DEBUG
+					printf("\noutModBus=%d", outModbus);
+				#endif
+				if (!relay){
+					outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
+					outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 0);
+				}
+				else{
+					outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 1);
+				}
+				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
+					printf("\n---------------------------------------");
+					printf("\n------------ERREUR - Relay-------------");
+					printf("\n----Le serveur n'à pas envoyé d'ACK----");
+					printf("\n--------Reconnection necessaire--------");
+					printf("\n---------------------------------------");
+					modbus_close(mb);
+					modbus_connect(mb);
+					if (!relay){
+						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
+						outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 0);
+					}
+					else{
+						outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 1);
+					}
 				}
 				#ifdef DEBUG
 					printf("\noutModBus=%d", outModbus);
@@ -146,7 +174,7 @@ static void * t_CAN_RC (void * p_data)
 				vmax = (actual_info->data[0]+256*actual_info->data[1])/1000.0;
 				if (vmax > 3.5) {
 					outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
-				} else if (vmax < 3.38) {
+				} else if ( (vmax < 3.38) && relay ) {
 					outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 1);
 				}
 				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
@@ -159,7 +187,7 @@ static void * t_CAN_RC (void * p_data)
 					modbus_connect(mb);
 					if (vmax > 3.5) {
 						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
-					} else if (vmax < 3.38) {
+					} else if ( (vmax < 3.38) && relay ) {
 						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 1);
 					}
 				}
