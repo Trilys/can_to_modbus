@@ -30,11 +30,11 @@
 #define MAX_TIME_CANRC_WAITER 3000000
 #define MAX_NUMBER_ID_FILTER 3
 
-#define IP_INTERFACE0 "192.168.1.100"
-#define IP_INTERFACE1 "192.168.1.101"
+#define IP_INTERFACE0 "10.10.10.11"
+#define IP_INTERFACE1 "10.10.10.12"
 
-#define IP_PORT0 1502
-#define IP_PORT1 1502
+#define IP_PORT0 502
+#define IP_PORT1 502
 
 //Definition for CCGX:
 #define ADD_CHARGER_CURRENTMAX 2316
@@ -42,4 +42,15 @@
 #define ADD_SOLAR_ON_OFF 774
 #define ADD_VEBUS_CURRENTMAX 22
 #define ADD_VEBUS_STATECHARGE 30
+#define ADD_VEBUS_MODE 33 // 1=Charger Only;2=Inverter Only;3=On;4=Off
 
+#define UID_VEBUS 246
+#define UID_SOLAR 245
+
+// Find a way to set it dynamically
+#define MAX_TOTAL_AC_CURRENT 10.0 // In Amps
+
+// CANA = CAN0 = babord
+// Permanent connection to onboard 220V -> tribord
+
+// (actual_info->num_interface[0]) ? 0 : 1

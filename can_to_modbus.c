@@ -57,6 +57,8 @@ typedef struct {
 } s_info_CAN;
 
 static volatile char local_running = 1;
+volatile float vmax[2] = {3.4, 3.4};
+volatile int16_t current_max[2] = {0, 0}; //as to be sent to Color control, in A/10 (123=12.3A)
 
 void local_sigterm(int signo)
 {
@@ -75,7 +77,6 @@ static void * t_CAN_RC (void * p_data)
 	s_info_CAN *actual_info = p_data;
 	
 	int soc, outModbus, relay;
-	float current_max, vmax;
 	
 	modbus_t *mb;
 	if (actual_info->num_interface[0] == 0) {
@@ -107,12 +108,16 @@ static void * t_CAN_RC (void * p_data)
 			//Send 1 register through modbus.
 			//int modbus_write_register(modbus_t *ctx, int addr, int value);
 			if ((actual_info->canIdReceived[0] & 0x7fFFffFF) == 0x10f8159e) {	//SOC
+				static int slow = 0;
+				if (slow >= 10){
+					slow = 0;
 				soc = actual_info->data[2]*10;
-				relay = (actual_info->data[7] == 0x1F); // high power relay closed if 8th byte is 0x1F
+				relay = ( (actual_info->data[7] & 0x10) == 0x10); // high power relay closed if 8th byte is 0x1F
 				#ifdef DEBUG
 					printf("\nDBG : SOC received : %02hx=%d",actual_info->data[2],soc);
 					printf("\nDBG : relay received : %02hx",actual_info->data[7]);
 				#endif
+				modbus_set_slave(mb, UID_VEBUS);
 				outModbus=modbus_write_register(mb, ADD_VEBUS_STATECHARGE, soc);
 				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
 					printf("\n---------------------------------------");
@@ -128,11 +133,12 @@ static void * t_CAN_RC (void * p_data)
 					printf("\noutModBus=%d", outModbus);
 				#endif
 				if (!relay){
+					outModbus = modbus_write_register(mb, ADD_VEBUS_MODE, 4); //Off, test with 2: inverter only
+					modbus_set_slave(mb, UID_SOLAR);
 					outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
-					outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 0);
 				}
 				else{
-					outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 1);
+					// outModbus = modbus_write_register(mb, ADD_VEBUS_MODE, 3); //On
 				}
 				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
 					printf("\n---------------------------------------");
@@ -143,57 +149,101 @@ static void * t_CAN_RC (void * p_data)
 					modbus_close(mb);
 					modbus_connect(mb);
 					if (!relay){
+						modbus_set_slave(mb, UID_SOLAR);
 						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
-						outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 0);
+						modbus_set_slave(mb, UID_VEBUS);
+						outModbus = modbus_write_register(mb, ADD_VEBUS_MODE, 4); //Off
 					}
 					else{
-						outModbus = modbus_write_register(mb, ADD_CHARGER_ON_OFF, 1);
+						// outModbus = modbus_write_register(mb, ADD_VEBUS_MODE, 3); //On
 					}
 				}
+				}
+				else slow++;
 				#ifdef DEBUG
 					printf("\noutModBus=%d", outModbus);
 				#endif
 			} else if ((actual_info->canIdReceived[0] & 0x7fFFffFF) == 0x10f8169e) {	//current_max
-				current_max = ((actual_info->data[5]+256*actual_info->data[6])/20.0 - 1600)/5;
-				#ifdef DEBUG
-					printf("\nDBG : current_max received : %02hx%02hx=%f",actual_info->data[5],actual_info->data[6],current_max);
-				#endif
-				outModbus = modbus_write_register(mb, ADD_CHARGER_CURRENTMAX, current_max);
-				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
-					printf("\n---------------------------------------");
-					printf("\n-------------ERREUR - IMAX-------------");
-					printf("\n----Le serveur n'a pas envoyé d'ACK----");
-					printf("\n--------Reconnection nécessaire--------");
-					printf("\n---------------------------------------");
-					modbus_close(mb);
-					modbus_connect(mb);
-					outModbus = modbus_write_register(mb, ADD_CHARGER_CURRENTMAX, current_max);
-				}
-				//outModbus=modbus_write_register(mb, ADD_VEBUS_CURRENTMAX, current_max);
+				// current_max = ((actual_info->data[5]+256*actual_info->data[6])/20.0 - 1600)/5;
+				// #ifdef DEBUG
+					// printf("\nDBG : current_max received : %02hx%02hx=%f",actual_info->data[5],actual_info->data[6],current_max);
+				// #endif
+				// outModbus = modbus_write_register(mb, ADD_CHARGER_CURRENTMAX, current_max);
+				// if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
+					// printf("\n---------------------------------------");
+					// printf("\n-------------ERREUR - IMAX-------------");
+					// printf("\n----Le serveur n'a pas envoyé d'ACK----");
+					// printf("\n--------Reconnection nécessaire--------");
+					// printf("\n---------------------------------------");
+					// modbus_close(mb);
+					// modbus_connect(mb);
+					// outModbus = modbus_write_register(mb, ADD_CHARGER_CURRENTMAX, current_max);
+				// }
+				// //outModbus=modbus_write_register(mb, ADD_VEBUS_CURRENTMAX, current_max);
 			} else if((actual_info->canIdReceived[0] & 0x7fFFffFF) == 0x18f81f9e) {	//Vmax
-				vmax = (actual_info->data[0]+256*actual_info->data[1])/1000.0;
-				if (vmax > 3.5) {
+				vmax[actual_info->num_interface[0]] = (actual_info->data[0]+256*actual_info->data[1])/1000.0;
+				modbus_set_slave(mb, UID_SOLAR);
+				if (vmax[actual_info->num_interface[0]] > 3.35) {
 					outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
-				} else if ( (vmax < 3.38) && relay ) {
+				} else if ( (vmax[actual_info->num_interface[0]] < 3.28) && relay ) {
 					outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 1);
 				}
 				if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
 					printf("\n---------------------------------------");
-					printf("\n------------ERREUR - VMAX--------------");
+					printf("\n---------ERREUR - VMAX SOLAR-----------");
 					printf("\n----Le serveur n'a pas envoyé d'ACK----");
 					printf("\n--------Reconnection nécessaire--------");
 					printf("\n---------------------------------------");
 					modbus_close(mb);
 					modbus_connect(mb);
-					if (vmax > 3.5) {
+					modbus_set_slave(mb, UID_SOLAR);
+					if (vmax[actual_info->num_interface[0]] > 3.45) {
 						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 0);
-					} else if ( (vmax < 3.38) && relay ) {
+					} else if ( (vmax[actual_info->num_interface[0]] < 3.38) && relay ) {
 						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 1);
 					}
 				}
-				#ifdef DEBUG
-					printf("\nDBG : current_max received : %02hx%02hx=%f",actual_info->data[0],actual_info->data[1],vmax);
-				#endif
+				
+				// if (vmax[actual_info->num_interface[0]] > 3.47) {
+					// if ( (current_max[actual_info->num_interface[0]]) >= ((3.57 - vmax[actual_info->num_interface[0]])*1000) ){
+						// current_max[actual_info->num_interface[0]] -= 5;
+					// }
+					// else if ( (current_max[actual_info->num_interface[0]]) <= ((3.55 - vmax[actual_info->num_interface[0]])*1000) ){
+						// if ( (current_max[0] + current_max[1]) < (MAX_TOTAL_AC_CURRENT * 10) ){
+							// current_max[actual_info->num_interface[0]] += 1;
+						// }
+					// }
+					// if (current_max[actual_info->num_interface[0]] < 0){
+						// current_max[actual_info->num_interface[0]] = 0;
+					// }
+				// } else if ( vmax[actual_info->num_interface[0]] < 3.47 ) {
+					// if ( (current_max[0] + current_max[1]) < (MAX_TOTAL_AC_CURRENT * 10) ){
+						// current_max[actual_info->num_interface[0]] += 5;
+					// }
+					// else if ( vmax[actual_info->num_interface[0]] < 3.3 && ( (vmax[(actual_info->num_interface[0]) ? 0 : 1] - vmax[actual_info->num_interface[0]]) > 0.05) ){
+						// if (current_max[(actual_info->num_interface[0]) ? 0 : 1] > 5){
+							// current_max[actual_info->num_interface[0]] += 5;
+							// current_max[(actual_info->num_interface[0]) ? 0 : 1] -= 5;
+						// }
+					// }
+				// }
+				// modbus_set_slave(mb, UID_VEBUS);
+				// outModbus = modbus_write_register(mb, ADD_VEBUS_CURRENTMAX, current_max[actual_info->num_interface[0]]);
+				// printf("\nDBG : current sent : %d",current_max[actual_info->num_interface[0]]);
+				// if (outModbus == -1) {	//Si non envoyé : se reconnecter puis réenvoyer.
+					// printf("\n---------------------------------------");
+					// printf("\n--------ERREUR - VMAX CHARGER----------");
+					// printf("\n----Le serveur n'a pas envoyé d'ACK----");
+					// printf("\n--------Reconnection nécessaire--------");
+					// printf("\n---------------------------------------");
+					// modbus_close(mb);
+					// modbus_connect(mb);
+					// modbus_set_slave(mb, UID_VEBUS);
+					// outModbus = modbus_write_register(mb, ADD_VEBUS_CURRENTMAX, current_max[actual_info->num_interface[0]]);
+				// }
+				// #ifdef DEBUG
+					// printf("\nDBG : V_max received : %02hx%02hx=%f",actual_info->data[0],actual_info->data[1],vmax);
+				// #endif
 			}
 		}
 	}
