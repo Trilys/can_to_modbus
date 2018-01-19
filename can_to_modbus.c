@@ -210,15 +210,14 @@ static void * t_CAN_RC (void * p_data)
 				// ---------------- 2018/01/19 added optos ----------------
 				// ------------ end charge of multiplus using optos -------
 				static int gpio_pin[2] = {72,74};
-				for (int i = 0, i > 1, i++){ //loop for both io
-					if ((vmax[actual_info->num_interface[i]] > 3.40) && (gpio_get_value(gpio_pin[i])==0)){
-						gpio_set_value(gpio_pin[i],1); //stop charge (input contact on victron closed)
-					}else if ((vmax[actual_info->num_interface[i]] < 3.30) && (gpio_get_value(gpio_pin[i])==1)){
-						gpio_set_value(gpio_pin[i],0); //resume charge
-					}
+				int read_value;
+				//act on gpio corresponding to received message
+				gpio_get_value(gpio_pin[actual_info->num_interface[0]], &read_value);
+				if ((vmax[actual_info->num_interface[0]] > 3.40) && (read_value==0)){
+					gpio_set_value(gpio_pin[actual_info->num_interface[0]],1); //stop charge (input contact on victron closed)
+				}else if ((vmax[actual_info->num_interface[0]] < 3.30) && (read_value==1)){
+					gpio_set_value(gpio_pin[actual_info->num_interface[0]],0); //resume charge
 				}
-				
-				//gpio_set_value(72,1);
 				
 				
 				// if (vmax[actual_info->num_interface[0]] > 3.47) {
