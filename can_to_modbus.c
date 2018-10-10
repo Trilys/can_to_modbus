@@ -35,6 +35,9 @@
 //Access to CAN interfaces
 #include "can_min.h"
 
+//Access to GPIO
+#include "gpio.h"
+
 //Get modbus library
 #include <modbus.h>
 
@@ -203,6 +206,23 @@ static void * t_CAN_RC (void * p_data)
 						outModbus = modbus_write_register(mb, ADD_SOLAR_ON_OFF, 1);
 					}
 				}
+				
+				// ---------------- 2018/01/19 added optos ----------------
+				// ------------ end charge of multiplus using optos -------
+				static int gpio_pin[2] = {70,77};
+				int read_value = 0;
+				//act on gpio corresponding to received message
+				gpio_get_value(gpio_pin[actual_info->num_interface[0]], &read_value);
+				//printf("\nDBG : interface : %d",actual_info->num_interface[0]);
+				//printf("\nDBG : vmax : %.2f",vmax[actual_info->num_interface[0]]);
+				//printf("\nDBG : read_value : %d",read_value);
+				if (vmax[actual_info->num_interface[0]] > 3.55){
+					gpio_set_value(gpio_pin[actual_info->num_interface[0]],1); //stop charge (input contact on victron)
+				}else if (vmax[actual_info->num_interface[0]] <= 3.35){
+					gpio_set_value(gpio_pin[actual_info->num_interface[0]],0); //resume charge
+				}
+
+				
 				
 				// if (vmax[actual_info->num_interface[0]] > 3.47) {
 					// if ( (current_max[actual_info->num_interface[0]]) >= ((3.57 - vmax[actual_info->num_interface[0]])*1000) ){
